@@ -1,44 +1,30 @@
-const { execFile } = require("child_process");
-const path = require("path");
+const C_BASE_URL = process.env.C_BASE_URL || "";
 
-const CACHE = new Map();
-const TTL_MS = 10 * 60 * 1000;
+/*
+  Episode -> Google Drive FILE_ID mapping
+  Example episode key: "tt0388629:1:1" (One Piece S1E1)
+  Paste your Drive file IDs here.
+*/
+const EPISODE_TO_DRIVE_FILE_ID = {
+  "tt0388629:1:2": "1EMmePynNIWDE_tDz-EH20oPPwzIgNqaE"
+};
 
-function cacheGet(key) {
-  const item = CACHE.get(key);
-  if (!item) return null;
-  if (Date.now() - item.time > TTL_MS) {
-    CACHE.delete(key);
-    return null;
-  }
-  return item.value;
+function buildDriveUrl(fileId) {
+  // Use the "file view" format (more compatible than uc?export=download)
+  return "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/view";
 }
 
-function cacheSet(key, value) {
-  CACHE.set(key, { value, time: Date.now() });
-}
+async function callCResolve(inputUrl) {
+  let base = String(C_BASE_URL || "").trim();
+  if (!base) throw new Error("Missing C_BASE_URL");
+  if (!base.startsWith("http://") && !base.startsWith("https://")) base = "https://" + base;
 
-function runYtDlp(inputUrl) {
-  return new Promise((resolve, reject) => {
-    const ytdlpPath = path.join(process.cwd(), "bin", "dlp-jipi");
+  const u = new URL("/api/resolve", base);
+  u.searchParams.set("url", inputUrl);
 
-    const args = [
-      "--no-playlist",
-      "--no-warnings",
-      "-f", "bv*+ba/b",
-      "-g",
-      inputUrl
-    ];
-
-    execFile(ytdlpPath, args, { timeout: 20000 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(String(stderr || err.message || err)));
-        return;
-      }
-      const directUrl = String(stdout).trim().split("\n").filter(Boolean)[0] || "";
-      resolve(directUrl);
-    });
-  });
+  const r = await fetch(u.toString(), { method: "GET" });
+  const text = await r.text();
+  return { status: r.status, text };
 }
 
 module.exports = async (req, res) => {
@@ -49,42 +35,41 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const inputUrl = String(req.query.url || "");
-    if (!inputUrl) {
+    const directUrl = String(req.query.url || "").trim();
+    const episode = String(req.query.episode || "").trim();
+
+    if (!directUrl && !episode) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Missing url parameter" }));
+      res.end(JSON.stringify({ error: "Missing url or episode parameter" }));
       return;
     }
 
-    const cached = cacheGet(inputUrl);
-    if (cached) {
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ url: cached, cached: true }));
-      return;
+    let inputUrl = directUrl;
+
+    if (!inputUrl && episode) {
+      const fileId = EPISODE_TO_DRIVE_FILE_ID[episode];
+      if (!fileId) {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Unknown episode", episode }));
+        return;
+      }
+      inputUrl = buildDriveUrl(fileId);
     }
 
-    const directUrl = await runYtDlp(inputUrl);
-    if (!directUrl || !directUrl.startsWith("http")) {
-      res.statusCode = 502;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "yt-dlp returned empty or invalid url" }));
-      return;
-    }
+    const { status, text } = await callCResolve(inputUrl);
 
-    cacheSet(inputUrl, directUrl);
-
-    res.statusCode = 200;
+    res.statusCode = status;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ url: directUrl, cached: false }));
+    res.end(text);
   } catch (e) {
-    res.statusCode = 500;
+    res.statusCode = 502;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
-        error: "yt-dlp failed",
-        detail: String(e && e.message ? e.message : e).slice(0, 1200)
+        error: "Broker failed",
+        detail: String(e && e.message ? e.message : e).slice(0, 900)
       })
     );
   }
