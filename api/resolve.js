@@ -6,11 +6,12 @@ const C_BASE_URL = process.env.C_BASE_URL || "";
   Paste your Drive file IDs here.
 */
 const EPISODE_TO_DRIVE_FILE_ID = {
-  "tt0388629:1:1": "https://drive.google.com/file/d/1EMmePynNIWDE_tDz-EH20oPPwzIgNqaE/view?usp=drivesdk"
+  // "tt0388629:1:1": "PASTE_FILE_ID_HERE"
 };
 
 function buildDriveUrl(fileId) {
-  return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(fileId);
+  // Use the "file view" format (more compatible than uc?export=download)
+  return "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/view";
 }
 
 async function callCResolve(inputUrl) {
@@ -34,10 +35,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // Mode A: user provides a direct URL
     const directUrl = String(req.query.url || "").trim();
-
-    // Mode B: user provides an episode id
     const episode = String(req.query.episode || "").trim();
 
     if (!directUrl && !episode) {
@@ -71,7 +69,7 @@ module.exports = async (req, res) => {
     res.end(
       JSON.stringify({
         error: "Broker failed",
-        detail: String(e && e.message ? e.message : e).slice(0, 600)
+        detail: String(e && e.message ? e.message : e).slice(0, 900)
       })
     );
   }
