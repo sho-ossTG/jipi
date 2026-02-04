@@ -1,5 +1,31 @@
 const C_BASE_URL = process.env.C_BASE_URL || "";
 
+/*
+  Episode -> Google Drive FILE_ID mapping
+  Example episode key: "tt0388629:1:1" (One Piece S1E1)
+  Paste your Drive file IDs here.
+*/
+const EPISODE_TO_DRIVE_FILE_ID = {
+  // "tt0388629:1:1": "PASTE_FILE_ID_HERE"
+};
+
+function buildDriveUrl(fileId) {
+  return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(fileId);
+}
+
+async function callCResolve(inputUrl) {
+  let base = String(C_BASE_URL || "").trim();
+  if (!base) throw new Error("Missing C_BASE_URL");
+  if (!base.startsWith("http://") && !base.startsWith("https://")) base = "https://" + base;
+
+  const u = new URL("/api/resolve", base);
+  u.searchParams.set("url", inputUrl);
+
+  const r = await fetch(u.toString(), { method: "GET" });
+  const text = await r.text();
+  return { status: r.status, text };
+}
+
 module.exports = async (req, res) => {
   try {
     if (req.method !== "GET") {
@@ -8,28 +34,35 @@ module.exports = async (req, res) => {
       return;
     }
 
-    if (!C_BASE_URL) {
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Missing C_BASE_URL" }));
-      return;
-    }
+    // Mode A: user provides a direct URL
+    const directUrl = String(req.query.url || "").trim();
 
-    const inputUrl = String(req.query.url || "");
-    if (!inputUrl) {
+    // Mode B: user provides an episode id
+    const episode = String(req.query.episode || "").trim();
+
+    if (!directUrl && !episode) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Missing url parameter" }));
+      res.end(JSON.stringify({ error: "Missing url or episode parameter" }));
       return;
     }
 
-    const u = new URL("/api/resolve", C_BASE_URL);
-    u.searchParams.set("url", inputUrl);
+    let inputUrl = directUrl;
 
-    const r = await fetch(u.toString(), { method: "GET" });
-    const text = await r.text();
+    if (!inputUrl && episode) {
+      const fileId = EPISODE_TO_DRIVE_FILE_ID[episode];
+      if (!fileId) {
+        res.statusCode = 404;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Unknown episode", episode }));
+        return;
+      }
+      inputUrl = buildDriveUrl(fileId);
+    }
 
-    res.statusCode = r.status;
+    const { status, text } = await callCResolve(inputUrl);
+
+    res.statusCode = status;
     res.setHeader("Content-Type", "application/json");
     res.end(text);
   } catch (e) {
