@@ -6,7 +6,7 @@ const C_BASE_URL = process.env.C_BASE_URL || "";
   Paste your Drive file IDs here.
 */
 const EPISODE_TO_DRIVE_FILE_ID = {
-  // "tt0388629:1:1": "https://drive.google.com/file/d/1EMmePynNIWDE_tDz-EH20oPPwzIgNqaE/view?usp=drivesdk"
+  "tt0388629:1:1": "https://drive.google.com/file/d/1EMmePynNIWDE_tDz-EH20oPPwzIgNqaE/view?usp=drivesdk"
 };
 
 function buildDriveUrl(fileId) {
