@@ -1,51 +1,17 @@
-const { execFile } = require("child_process");
-const path = require("path");
-
-const CACHE = new Map();
-const TTL_MS = 10 * 60 * 1000;
-
-function cacheGet(key) {
-  const item = CACHE.get(key);
-  if (!item) return null;
-  if (Date.now() - item.time > TTL_MS) {
-    CACHE.delete(key);
-    return null;
-  }
-  return item.value;
-}
-
-function cacheSet(key, value) {
-  CACHE.set(key, { value, time: Date.now() });
-}
-
-function runYtDlp(inputUrl) {
-  return new Promise((resolve, reject) => {
-    const ytdlpPath = path.join(process.cwd(), "bin", "dlp-jipi");
-
-    const args = [
-      "--no-playlist",
-      "--no-warnings",
-      "-f", "bv*+ba/b",
-      "-g",
-      inputUrl
-    ];
-
-    execFile(ytdlpPath, args, { timeout: 20000 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(String(stderr || err.message || err)));
-        return;
-      }
-      const directUrl = String(stdout).trim().split("\n").filter(Boolean)[0] || "";
-      resolve(directUrl);
-    });
-  });
-}
+const C_BASE_URL = process.env.C_BASE_URL || "";
 
 module.exports = async (req, res) => {
   try {
     if (req.method !== "GET") {
       res.statusCode = 405;
       res.end("Method Not Allowed");
+      return;
+    }
+
+    if (!C_BASE_URL) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Missing C_BASE_URL" }));
       return;
     }
 
@@ -57,34 +23,22 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const cached = cacheGet(inputUrl);
-    if (cached) {
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ url: cached, cached: true }));
-      return;
-    }
+    const u = new URL("/api/resolve", C_BASE_URL);
+    u.searchParams.set("url", inputUrl);
 
-    const directUrl = await runYtDlp(inputUrl);
-    if (!directUrl || !directUrl.startsWith("http")) {
-      res.statusCode = 502;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "yt-dlp returned empty or invalid url" }));
-      return;
-    }
+    const r = await fetch(u.toString(), { method: "GET" });
+    const text = await r.text();
 
-    cacheSet(inputUrl, directUrl);
-
-    res.statusCode = 200;
+    res.statusCode = r.status;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ url: directUrl, cached: false }));
+    res.end(text);
   } catch (e) {
-    res.statusCode = 500;
+    res.statusCode = 502;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
-        error: "yt-dlp failed",
-        detail: String(e && e.message ? e.message : e).slice(0, 1200)
+        error: "Broker failed",
+        detail: String(e && e.message ? e.message : e).slice(0, 600)
       })
     );
   }
