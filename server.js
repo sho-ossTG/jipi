@@ -6,6 +6,9 @@ const fetch = require("node-fetch");
 const app = express();
 app.use(express.json());
 
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, "public")));
+
 // CHANGE THIS TO YOUR C SERVER URL ON VERCEL
 const C_BASE_URL = "https://dlp-jipi-YOUR-VERCEL.vercel.app";
 
